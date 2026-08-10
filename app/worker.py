@@ -16,7 +16,7 @@ from telethon.errors import FloodWaitError
 from telethon.sessions import StringSession
 from telethon.tl.types import UserStatusOnline, User
 
-from app.db import Account, BannedWord, LogEntry, async_session_factory
+from app.db import Account, BannedWord, LogEntry, async_session_factory, init_models
 from app.modules import (  # noqa: F401 — импорт регистрирует команды через декоратор @command
     admin, chat, chatstats, clone, contacts, core, info, kurs,
     messagetofile, pingbot, purger, quotes, screenshot, streak,
@@ -256,6 +256,8 @@ def _spawn_background_tasks() -> None:
 
 async def run_worker() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
+
+    await init_models()
 
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
