@@ -1,13 +1,18 @@
 from telethon import TelegramClient, sessions
 import asyncio
 
-api_id = 31580348
-api_hash = 'd053644c96e8ad64fe93eab7bcf42675'
+API_ID = 31580348  # ваш api_id из переменных
+API_HASH = 'd053644c96e8ad64fe93eab7bcf42675'
 
 async def main():
-    client = TelegramClient(sessions.StringSession(), api_id, api_hash)
+    # Создаём клиент с пустой строкой сессии (новая сессия)
+    client = TelegramClient(sessions.StringSession(), API_ID, API_HASH)
     await client.start()
-    print(client.session.save())  # выведет строку сессии
+    # Сохраняем строку сессии
+    session_str = client.session.save()
+    print("Ваша сессионная строка:")
+    print(session_str)
     await client.disconnect()
 
-asyncio.run(main())
+if __name__ == '__main__':
+    asyncio.run(main())
