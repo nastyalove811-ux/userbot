@@ -58,23 +58,45 @@ async def get_lang(account_id: int) -> str:
 async def cmd_help(ctx: CommandContext) -> None:
     from app.modules.base import all_commands  # локальный импорт во избежание цикла
 
+    def fmt_module(name: str, command_names: list[str]) -> str:
+        specs = all_commands()
+        block = [f"✨ {name.upper()}"]
+        for cmd_name in command_names:
+            spec = specs[cmd_name]
+            status = "🔒" if spec.admin_only else "🌐"
+            block.append(f"  {status} {ctx.prefix}{spec.name} — {spec.description or 'без описания'}")
+        return "\n".join(block)
+
     if ctx.args:
         module_name = ctx.args[0].lower()
         commands = all_modules().get(module_name)
         if not commands:
-            await ctx.event.reply(f"Модуль '{module_name}' не найден.")
+            available = ", ".join(sorted(all_modules().keys()))
+            await ctx.event.reply(f"❌ Модуль '{module_name}' не найден.\nДоступно: {available}")
             return
-        specs = all_commands()
-        lines = [f"📦 Модуль {module_name}:"]
-        for cmd_name in commands:
-            spec = specs[cmd_name]
-            lines.append(f"{ctx.prefix}{spec.name} — {spec.description or 'без описания'}")
+        lines = [
+            f"📦 Модуль: {module_name}",
+            "─" * min(len(module_name) + 18, 60),
+            *[f"• {ctx.prefix}{cmd} — {all_commands()[cmd].description or 'без описания'}" for cmd in commands],
+        ]
         await ctx.event.reply("\n".join(lines))
-    else:
-        modules = sorted(all_modules().keys())
-        text = "📦 Доступные модули:\n" + "\n".join(f"• {m}" for m in modules)
-        text += f"\n\nИспользуйте {ctx.prefix}help <модуль> для подробностей."
-        await ctx.event.reply(text)
+        return
+
+    modules = sorted(all_modules().items())
+    lines = [
+        "✨ Userbot — справка",
+        "═" * 28,
+        "Команды можно запускать как обычным префиксом, так и через упоминание бота / ответом.",
+        "",
+    ]
+    for module_name, command_names in modules:
+        lines.append(fmt_module(module_name, command_names))
+        lines.append("")
+    lines.extend([
+        f"💡 Примеры: {ctx.prefix}help chat | @{ctx.prefix.strip() if ctx.prefix else 'bot'}help",
+        f"📌 Подробности: {ctx.prefix}help <модуль>",
+    ])
+    await ctx.event.reply("\n".join(lines))
 
 
 @command("settings", module="core", description="Показать/изменить настройки модуля")

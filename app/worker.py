@@ -78,7 +78,21 @@ async def _dispatch(account_id: int, client: TelegramClient, event) -> None:
 
     text = event.raw_text or ""
     prefix = await get_prefix(account_id)
-    parsed = parse_command(text, prefix)
+    bot_username = None
+    try:
+        me = await client.get_me()
+        bot_username = getattr(me, "username", None)
+    except Exception:  # noqa: BLE001
+        bot_username = None
+
+    parsed = parse_command(text, prefix, bot_username)
+    if parsed is None and event.is_reply:
+        try:
+            replied = await event.get_reply_message()
+            if replied and replied.raw_text:
+                parsed = parse_command(replied.raw_text, prefix, bot_username)
+        except Exception:  # noqa: BLE001
+            parsed = None
     if parsed is None:
         return
 

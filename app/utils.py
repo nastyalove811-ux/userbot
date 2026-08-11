@@ -38,15 +38,37 @@ class ParsedCommand:
 _COMMAND_RE = re.compile(r"^([^\sa-zA-Zа-яА-Я0-9])([a-zA-Zа-яА-Я0-9_]+)(?:\s+(.*))?$", re.DOTALL)
 
 
-def parse_command(text: str, prefix: str) -> ParsedCommand | None:
+def parse_command(text: str, prefix: str, bot_username: str | None = None) -> ParsedCommand | None:
     """
     Разбирает входящее сообщение на команду и аргументы.
-    Пример: ".kurs 100 usd eur" с prefix="." -> command="kurs", args=["100","usd","eur"]
-    Возвращает None, если сообщение не начинается с заданного префикса.
+    Поддерживаются варианты:
+    - .help
+    - @botname .help
+    - botname .help
+    - текст после упоминания бота, если оно стоит перед командой.
     """
-    if not text or not text.startswith(prefix):
+    if not text:
         return None
-    body = text[len(prefix):]
+
+    candidate = text.strip()
+    if not candidate:
+        return None
+
+    if bot_username:
+        normalized = bot_username.strip().lstrip("@").lower()
+        patterns = [
+            rf"^(?:@?{re.escape(normalized)}\s*[:\-]?\s*)",
+            rf"(?<!\w)(?:@?{re.escape(normalized)}\s*[:\-]?\s*)",
+        ]
+        for pattern in patterns:
+            candidate = re.sub(pattern, "", candidate, count=1, flags=re.IGNORECASE)
+            if candidate != text.strip():
+                break
+
+    if not candidate.startswith(prefix):
+        return None
+
+    body = candidate[len(prefix):]
     if not body:
         return None
     parts = body.split(None, 1)
@@ -55,7 +77,6 @@ def parse_command(text: str, prefix: str) -> ParsedCommand | None:
     try:
         args = shlex.split(raw_args) if raw_args else []
     except ValueError:
-        # некорректные кавычки и т.п. — просто делим по пробелам
         args = raw_args.split() if raw_args else []
     return ParsedCommand(prefix=prefix, command=command, args=args, raw_args=raw_args)
 
