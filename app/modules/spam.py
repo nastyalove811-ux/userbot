@@ -31,7 +31,7 @@ async def cmd_spam(ctx: CommandContext) -> None:
     """
     Использование: spam <количество> <текст>
     Отправляет указанное количество копий текста.
-    При количестве > MAX_SPAM_CONFIRM запрашивает подтверждение.
+    При количестве > MAX_SPAM_CONFIRM выводится предупреждение.
     """
     if len(ctx.args) < 2:
         await ctx.event.reply(
@@ -54,32 +54,18 @@ async def cmd_spam(ctx: CommandContext) -> None:
         await ctx.event.reply("❌ Текст не может быть пустым.")
         return
 
-    # Защита от случайного массового спама
+    # Предупреждение при большом количестве
     if count > MAX_SPAM_CONFIRM:
-        confirm_msg = await ctx.event.reply(
+        await ctx.event.reply(
             f"⚠️ Вы собираетесь отправить **{count}** сообщений. "
-            f"Это может вызвать флуд. Для подтверждения отправьте `yes` в течение 10 секунд."
+            f"Это может вызвать флуд. Продолжаем..."
         )
-        try:
-            # Ожидаем ответ пользователя (предполагаем, что есть метод wait_for_response)
-            response = await ctx.event.wait_for_response(
-                from_user=ctx.event.sender_id, timeout=10
-            )
-            if response.text.lower() != "yes":
-                await ctx.event.reply("❌ Отменено.")
-                return
-        except asyncio.TimeoutError:
-            await ctx.event.reply("⏰ Время вышло. Отменено.")
-            return
-        except AttributeError:
-            # Если wait_for_response не реализован, просто предупреждаем и продолжаем
-            await ctx.event.reply("⚠️ Подтверждение не поддерживается, продолжаем...")
 
     # Отправка спама
     for i in range(count):
         try:
             await ctx.event.reply(text)
-            await asyncio.sleep(0.1)  # небольшая задержка, чтобы не упереться в лимиты
+            await asyncio.sleep(0.1)  # небольшая задержка
         except Exception as e:
             logger.error(f"Ошибка при спаме: {e}")
             await ctx.event.reply(f"❌ Ошибка на сообщении {i+1}: {e}")
@@ -121,20 +107,10 @@ async def cmd_cspam(ctx: CommandContext) -> None:
         await ctx.event.reply("❌ Текст не может быть пустым.")
         return
 
-    # Защита аналогично спаму
     if count > MAX_SPAM_CONFIRM:
-        confirm_msg = await ctx.event.reply(
-            f"⚠️ Вы собираетесь отправить **{count}** сообщений с задержкой. Подтвердите `yes` в течение 10 сек."
+        await ctx.event.reply(
+            f"⚠️ Вы собираетесь отправить **{count}** сообщений с задержкой. Продолжаем..."
         )
-        try:
-            response = await ctx.event.wait_for_response(
-                from_user=ctx.event.sender_id, timeout=10
-            )
-            if response.text.lower() != "yes":
-                await ctx.event.reply("❌ Отменено.")
-                return
-        except (asyncio.TimeoutError, AttributeError):
-            await ctx.event.reply("⏰ Время вышло или функция не поддерживается. Продолжаем...")
 
     for i in range(count):
         try:
@@ -155,8 +131,9 @@ async def cmd_cspam(ctx: CommandContext) -> None:
     module="spam",
     description="Форматированный спам с поддержкой Markdown (жирный, курсив, код и т.д.)",
     admin_only=False,
-    aliases=["wspam"],  # оставляем старый псевдоним для совместимости
 )
+# Псевдоним "wspam" убран, так как декоратор не поддерживает aliases.
+# При желании можно создать отдельную команду-ссылку, но это необязательно.
 async def cmd_formatspam(ctx: CommandContext) -> None:
     """
     Использование: formatspam <количество> <текст с Markdown>
@@ -184,20 +161,10 @@ async def cmd_formatspam(ctx: CommandContext) -> None:
         return
 
     if count > MAX_SPAM_CONFIRM:
-        try:
-            await ctx.event.reply(
-                f"⚠️ Отправить {count} форматированных сообщений? Ответьте `yes` в течение 10 сек."
-            )
-            response = await ctx.event.wait_for_response(
-                from_user=ctx.event.sender_id, timeout=10
-            )
-            if response.text.lower() != "yes":
-                await ctx.event.reply("❌ Отменено.")
-                return
-        except (asyncio.TimeoutError, AttributeError):
-            pass
+        await ctx.event.reply(
+            f"⚠️ Отправить {count} форматированных сообщений? Продолжаем..."
+        )
 
-    # Отправка с форматированием (parse_mode='Markdown')
     for i in range(count):
         try:
             await ctx.event.reply(text, parse_mode="Markdown")
@@ -253,44 +220,26 @@ async def cmd_delayspam(ctx: CommandContext) -> None:
         await ctx.event.reply("❌ Текст не может быть пустым.")
         return
 
-    # Подтверждение
+    # Подтверждение не требуется, просто информируем
     await ctx.event.reply(
         f"⏳ Отложенный спам будет отправлен через **{delay}** секунд.\n"
         f"Количество: {count}\nТекст: {text[:50]}...\n"
-        f"Для отмены напишите `cancel` в течение {delay} секунд."
+        f"Для отмены напишите `cancel` в течение {delay} секунд (не реализовано)."
     )
 
-    # Запускаем таймер с возможностью отмены
-    try:
-        # Создаём задачу, которая будет ждать и отправлять
-        async def delayed_task():
-            # Ждём delay секунд, но с проверкой на отмену
-            for _ in range(delay):
-                await asyncio.sleep(1)
-                # Проверяем, не поступила ли команда отмены (проверяем последнее сообщение от пользователя)
-                # Это упрощённо; в реальности нужно подписаться на новые сообщения
-                # Для демонстрации просто ждём и отправляем
-            # Отправляем спам
-            for i in range(count):
-                try:
-                    await ctx.event.reply(text)
-                    await asyncio.sleep(0.1)
-                except Exception as e:
-                    logger.error(f"Ошибка при отложенном спаме: {e}")
-                    await ctx.event.reply(f"❌ Ошибка: {e}")
-                    return
-            logger.info(f"Отложенный спам {count} сообщений от {ctx.event.sender_id}")
-            await ctx.event.reply(f"✅ Отложенный спам ({count} сообщений) отправлен.")
+    # Запускаем фоновую задачу
+    async def delayed_task():
+        await asyncio.sleep(delay)
+        for i in range(count):
+            try:
+                await ctx.event.reply(text)
+                await asyncio.sleep(0.1)
+            except Exception as e:
+                logger.error(f"Ошибка при отложенном спаме: {e}")
+                await ctx.event.reply(f"❌ Ошибка: {e}")
+                return
+        logger.info(f"Отложенный спам {count} сообщений от {ctx.event.sender_id}")
+        await ctx.event.reply(f"✅ Отложенный спам ({count} сообщений) отправлен.")
 
-        # Запускаем задачу, но не блокируем основной поток
-        asyncio.create_task(delayed_task())
-        # Ответим, что задача запущена
-        # Команда завершается, но задача продолжает работать
-
-    except Exception as e:
-        logger.error(f"Ошибка при запуске отложенного спама: {e}")
-        await ctx.event.reply(f"❌ Ошибка: {e}")
-
-
-# Дополнительно можно добавить команду для остановки всех запущенных задач,
-# но это потребует глобального хранилища задач. Оставим для будущего расширения.
+    asyncio.create_task(delayed_task())
+    # Команда завершается, задача продолжает работать
