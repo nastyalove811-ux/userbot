@@ -13,7 +13,7 @@ from telethon.errors import ApiIdInvalidError, SessionPasswordNeededError
 from telethon.sessions import StringSession
 
 from app.auth import require_auth
-from app.db import Account, async_session_factory
+from app.db import Account, LogEntry, async_session_factory
 from app.redis_client import clear_login_code_state, get_login_code_state, publish_event, store_login_code_state
 from app.settings import get_settings
 from app.utils import encrypt
@@ -48,6 +48,47 @@ async def list_accounts() -> list[AccountOut]:
     async with async_session_factory() as session:
         result = await session.execute(select(Account))
         return [AccountOut.model_validate(a) for a in result.scalars().all()]
+
+
+@router.get("/{account_id}/details")
+async def account_details(account_id: int) -> dict:
+    async with async_session_factory() as session:
+        account = await session.get(Account, account_id)
+        if not account:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Аккаунт не найден")
+
+        logs = await session.execute(
+            select(LogEntry)
+            .where(LogEntry.account_id == account_id)
+            .order_by(LogEntry.id.desc())
+            .limit(8)
+        )
+
+        return {
+            "account": {
+                "id": account.id,
+                "phone": account.phone,
+                "is_active": account.is_active,
+                "bot_enabled": account.bot_enabled,
+                "first_name": account.first_name,
+                "last_name": account.last_name,
+                "username": account.username,
+                "user_id": account.user_id,
+                "premium": account.premium,
+                "session_ready": bool(account.session_string),
+                "registration_date": account.registration_date.isoformat() if account.registration_date else None,
+                "last_sync": account.last_sync.isoformat() if account.last_sync else None,
+            },
+            "logs": [
+                {
+                    "id": row.id,
+                    "event_type": row.event_type,
+                    "chat_id": row.chat_id,
+                    "message": row.message,
+                }
+                for row in logs.scalars().all()
+            ],
+        }
 
 
 @router.post("/send-code")

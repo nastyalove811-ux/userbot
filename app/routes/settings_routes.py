@@ -2,10 +2,15 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from app.auth import require_auth
 from app.db import Account, LogEntry, Setting, async_session_factory
+from app.modules import (  # noqa: F401 — регистрирует команды через @command
+    admin, chat, chatstats, clone, contacts, core, info, kurs,
+    messagetofile, pingbot, purger, quotes, screenshot, streak,
+    swmute, test, typingwatch, urldl, voicy, webshot, welcome, wordle,
+)
 from app.modules.base import all_commands, all_modules
 from app.modules.core import set_setting
 from app.settings import get_settings
@@ -14,6 +19,7 @@ router = APIRouter(dependencies=[Depends(require_auth)])
 
 
 class SettingOut(BaseModel):
+    account_id: int | None = None
     module: str
     key: str
     value: str | None
@@ -89,13 +95,24 @@ async def list_modules(account_id: int | None = None) -> list[ModuleStatusOut]:
     available = all_modules()
 
     async with async_session_factory() as session:
-        rows = await session.execute(select(Setting).where(Setting.account_id == account_id))
-        setting_map = {f"{row.module}:{row.key}": row.value for row in rows.scalars().all()}
+        if account_id is None:
+            rows = await session.execute(select(Setting).where(Setting.account_id.is_(None)))
+        else:
+            rows = await session.execute(
+                select(Setting).where(or_(Setting.account_id == account_id, Setting.account_id.is_(None)))
+            )
+
+        entries = rows.scalars().all()
+        merged: dict[str, str] = {}
+        for row in entries:
+            key = f"{row.module}:{row.key}"
+            if row.account_id == account_id or row.account_id is None:
+                merged[key] = row.value
 
     result: list[ModuleStatusOut] = []
     for module_name, commands in sorted(available.items()):
         key = f"core:module_enabled:{module_name}"
-        enabled_raw = setting_map.get(key)
+        enabled_raw = merged.get(key)
         enabled = enabled_raw != "0" if enabled_raw is not None else True
         result.append(
             ModuleStatusOut(
@@ -115,19 +132,43 @@ async def list_modules(account_id: int | None = None) -> list[ModuleStatusOut]:
 @router.post("/modules/{module_name}/toggle")
 async def toggle_module(module_name: str, account_id: int | None = None) -> dict:
     async with async_session_factory() as session:
-        result = await session.execute(
-            select(Setting).where(
-                Setting.account_id == account_id,
-                Setting.module == "core",
-                Setting.key == f"module_enabled:{module_name}",
+        if account_id is None:
+            result = await session.execute(
+                select(Setting).where(
+                    Setting.account_id.is_(None),
+                    Setting.module == "core",
+                    Setting.key == f"module_enabled:{module_name}",
+                )
             )
-        )
-        row = result.scalar_one_or_none()
+            row = result.scalar_one_or_none()
+        else:
+            result = await session.execute(
+                select(Setting).where(
+                    Setting.module == "core",
+                    Setting.key == f"module_enabled:{module_name}",
+                    or_(Setting.account_id == account_id, Setting.account_id.is_(None)),
+                )
+            )
+            row = None
+            for candidate in result.scalars().all():
+                if candidate.account_id == account_id:
+                    row = candidate
+                    break
+                if row is None and candidate.account_id is None:
+                    row = candidate
+
         next_value = "0" if (row and row.value == "1") else "1"
         if row:
             row.value = next_value
         else:
-            session.add(Setting(account_id=account_id, module="core", key=f"module_enabled:{module_name}", value=next_value))
+            session.add(
+                Setting(
+                    account_id=account_id,
+                    module="core",
+                    key=f"module_enabled:{module_name}",
+                    value=next_value,
+                )
+            )
         await session.commit()
     return {"status": "ok", "module": module_name, "enabled": next_value == "1"}
 

@@ -10,8 +10,35 @@ const settingsTable = $('#settingsTable');
 const modulesTable = $('#modulesTable');
 const logsTable = $('#logsTable');
 const overviewGrid = $('#overviewGrid');
+const serviceCards = $('#serviceCards');
+const detailPhone = $('#detailPhone');
+const detailName = $('#detailName');
+const detailUsername = $('#detailUsername');
+const detailPremium = $('#detailPremium');
+const detailSession = $('#detailSession');
+const detailLastSync = $('#detailLastSync');
+const detailLogs = $('#detailLogs');
+const selectedAccountLabel = $('#selectedAccountLabel');
+const moduleScopeLabel = $('#moduleScopeLabel');
 const tabs = $$('.tab-button');
 const onlineBadge = $('#onlineBadge');
+let selectedAccountId = null;
+
+const buildAccountFilter = (path) => {
+  if (!selectedAccountId) return path;
+  const separator = path.includes('?') ? '&' : '?';
+  return `${path}${separator}account_id=${selectedAccountId}`;
+};
+
+const updateAccountContext = () => {
+  if (selectedAccountId) {
+    selectedAccountLabel.textContent = `#${selectedAccountId}`;
+    moduleScopeLabel.textContent = 'Локальный';
+  } else {
+    selectedAccountLabel.textContent = 'Все';
+    moduleScopeLabel.textContent = 'Глобальный';
+  }
+};
 
 const setBadge = (online) => {
   onlineBadge.innerHTML = `<span class="status-dot"></span>${online ? 'Online' : 'Offline'}`;
@@ -77,7 +104,7 @@ const loadAccounts = async () => {
   const accounts = await api('/api/accounts');
   accountsTable.innerHTML = accounts.length
     ? accounts.map(account => `
-      <tr>
+      <tr data-account-id="${account.id}" class="account-row ${selectedAccountId === account.id ? 'selected' : ''}">
         <td>${account.id}</td>
         <td>${account.phone}</td>
         <td><span class="badge ${account.is_active ? 'success' : 'neutral'}">${account.is_active ? 'Активен' : 'Отключён'}</span></td>
@@ -89,11 +116,19 @@ const loadAccounts = async () => {
       </tr>
     `).join('')
     : '<tr><td colspan="5">Аккаунты не найдены.</td></tr>';
+
+  if (!selectedAccountId && accounts[0]) {
+    selectedAccountId = accounts[0].id;
+  }
+  updateAccountContext();
+  if (selectedAccountId) {
+    await loadAccountDetails(selectedAccountId);
+  }
   return accounts;
 };
 
 const loadSettings = async () => {
-  const settings = await api('/api/settings');
+  const settings = await api(buildAccountFilter('/api/settings'));
   settingsTable.innerHTML = settings.length
     ? settings.map(setting => `
       <tr>
@@ -107,19 +142,45 @@ const loadSettings = async () => {
   return settings;
 };
 
+let _allModules = [];
+let _currentModuleFilter = 'all';
+let _currentModuleSearch = '';
+
 const loadModules = async () => {
-  const modules = await api('/api/settings/modules');
-  modulesTable.innerHTML = modules.length
-    ? modules.map(module => `
-      <tr>
-        <td>${module.name}</td>
-        <td>${module.commands.slice(0, 6).join(', ')}${module.commands.length > 6 ? '…' : ''}</td>
-        <td><span class="badge ${module.enabled ? 'success' : 'neutral'}">${module.enabled ? 'Включён' : 'Отключён'}</span></td>
-        <td><button data-action="toggle-module" data-module="${module.name}">${module.enabled ? 'Отключить' : 'Включить'}</button></td>
-      </tr>
+  _allModules = await api(buildAccountFilter('/api/settings/modules'));
+  renderModulesGrid();
+  return _allModules;
+};
+
+const renderModulesGrid = () => {
+  let filtered = _allModules;
+  
+  if (_currentModuleFilter === 'enabled') {
+    filtered = filtered.filter(m => m.enabled);
+  } else if (_currentModuleFilter === 'disabled') {
+    filtered = filtered.filter(m => !m.enabled);
+  }
+  
+  if (_currentModuleSearch) {
+    const query = _currentModuleSearch.toLowerCase();
+    filtered = filtered.filter(m => m.name.toLowerCase().includes(query) || m.commands.some(c => c.toLowerCase().includes(query)));
+  }
+  
+  const modulesGrid = $('#modulesGrid');
+  modulesGrid.innerHTML = filtered.length
+    ? filtered.map(module => `
+      <div class="module-card ${module.enabled ? 'enabled' : 'disabled'}">
+        <div class="module-card-header">
+          <div class="module-card-title">${module.name}</div>
+          <div class="module-card-badge ${module.enabled ? 'enabled' : ''}">${module.command_count}</div>
+        </div>
+        <div class="module-card-commands">🔧 ${module.commands.slice(0, 3).join(', ')}${module.commands.length > 3 ? '...' : ''}</div>
+        <button data-action="toggle-module" data-module="${module.name}" class="module-card-button">
+          ${module.enabled ? '✓ Отключить' : '+ Включить'}
+        </button>
+      </div>
     `).join('')
-    : '<tr><td colspan="4">Модули не найдены.</td></tr>';
-  return modules;
+    : '<div style="grid-column: 1/-1; text-align: center; color: var(--muted); padding: 40px 20px;">Модули не найдены</div>';
 };
 
 const loadProfile = async () => {
@@ -167,17 +228,67 @@ const loadOverview = async () => {
   return overview;
 };
 
+const loadServices = async () => {
+  const services = await api('/api/settings/services');
+  serviceCards.innerHTML = services.map(service => `
+    <div class="service-card ${service.status}">
+      <span class="service-name">${service.name}</span>
+      <strong>${service.status}</strong>
+      <small>${service.detail}</small>
+    </div>
+  `).join('');
+  return services;
+};
+
+const loadAccountDetails = async (accountId) => {
+  if (!accountId) {
+    detailPhone.textContent = '—';
+    detailName.textContent = '—';
+    detailUsername.textContent = '—';
+    detailPremium.textContent = '—';
+    detailSession.textContent = '—';
+    detailLastSync.textContent = '—';
+    detailLogs.innerHTML = '<div class="mini-log-item">Нет данных</div>';
+    return null;
+  }
+
+  try {
+    const data = await api(`/api/accounts/${accountId}/details`);
+    const account = data.account || {};
+    detailPhone.textContent = account.phone || '—';
+    detailName.textContent = [account.first_name, account.last_name].filter(Boolean).join(' ') || '—';
+    detailUsername.textContent = account.username || '—';
+    detailPremium.textContent = account.premium ? 'Да' : 'Нет';
+    detailSession.textContent = account.session_ready ? 'Готово' : 'Нет';
+    detailLastSync.textContent = account.last_sync ? new Date(account.last_sync).toLocaleString('ru-RU') : '—';
+
+    detailLogs.innerHTML = (data.logs || []).length
+      ? data.logs.map(log => `
+          <div class="mini-log-item">
+            <span>${log.event_type}</span>
+            <small>${log.message || '—'}</small>
+          </div>
+        `).join('')
+      : '<div class="mini-log-item">Нет событий</div>';
+    return data;
+  } catch (error) {
+    detailLogs.innerHTML = `<div class="mini-log-item error">${error.message}</div>`;
+    return null;
+  }
+};
+
 const refreshDashboard = async () => {
-  const [accounts, settings, modules, overview, logs, profile] = await Promise.all([
+  const [accounts, settings, modules, overview, services, logs, profile] = await Promise.all([
     loadAccounts(),
     loadSettings(),
     loadModules(),
     loadOverview(),
+    loadServices(),
     loadLogs(),
     loadProfile(),
   ]);
   updateMetrics(accounts, settings, logs);
-  return { accounts, settings, modules, overview, logs, profile };
+  return { accounts, settings, modules, overview, services, logs, profile };
 };
 
 const showDashboard = async () => {
@@ -277,6 +388,15 @@ const init = async () => {
   });
 
   accountsTable.addEventListener('click', async (event) => {
+    const row = event.target.closest('tr[data-account-id]');
+    if (row) {
+      selectedAccountId = Number(row.dataset.accountId);
+      updateAccountContext();
+      await loadAccountDetails(selectedAccountId);
+      await refreshDashboard();
+      $$('.account-row').forEach(item => item.classList.toggle('selected', Number(item.dataset.accountId) === selectedAccountId));
+    }
+
     const button = event.target.closest('button[data-action]');
     if (!button) return;
     const id = button.dataset.id;
@@ -294,18 +414,36 @@ const init = async () => {
     }
   });
 
-  modulesTable.addEventListener('click', async (event) => {
+  document.addEventListener('click', async (event) => {
     const button = event.target.closest('button[data-action="toggle-module"]');
     if (!button) return;
     const moduleName = button.dataset.module;
 
     try {
-      await api(`/api/settings/modules/${encodeURIComponent(moduleName)}/toggle`, { method: 'POST' });
+      const url = buildAccountFilter(`/api/settings/modules/${encodeURIComponent(moduleName)}/toggle`);
+      await api(url, { method: 'POST' });
       showMessage(`Модуль ${moduleName} обновлён`);
       await loadModules();
     } catch (error) {
       showMessage(error.message, 'error');
     }
+  });
+  
+  const moduleFilter = $('#moduleFilter');
+  if (moduleFilter) {
+    moduleFilter.addEventListener('input', (event) => {
+      _currentModuleSearch = event.target.value;
+      renderModulesGrid();
+    });
+  }
+  
+  $$('.filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      $$('.filter-btn').forEach(b => b.classList.remove('filter-btn--active'));
+      btn.classList.add('filter-btn--active');
+      _currentModuleFilter = btn.dataset.filter;
+      renderModulesGrid();
+    });
   });
 
   logoutButton.addEventListener('click', async () => {

@@ -91,6 +91,17 @@
           </div>
         </div>
 
+        <div class="account-context-bar" aria-live="polite">
+          <div class="context-pill">
+            <span>Аккаунт</span>
+            <strong id="selectedAccountLabel">Все</strong>
+          </div>
+          <div class="context-pill">
+            <span>Режим</span>
+            <strong id="moduleScopeLabel">Глобальный</strong>
+          </div>
+        </div>
+
         <div class="tabs">
           <button data-tab="accounts" class="tab-button tab-button--active">Аккаунты</button>
           <button data-tab="settings" class="tab-button">Настройки</button>
@@ -153,6 +164,22 @@
               </table>
             </div>
           </div>
+
+          <div class="card card--full">
+            <div class="card-header">
+              <h3>Детали аккаунта</h3>
+              <span class="badge success">inspector</span>
+            </div>
+            <div class="details-grid">
+              <div class="profile-item"><span>Телефон</span><strong id="detailPhone">—</strong></div>
+              <div class="profile-item"><span>ФИО</span><strong id="detailName">—</strong></div>
+              <div class="profile-item"><span>Username</span><strong id="detailUsername">—</strong></div>
+              <div class="profile-item"><span>Premium</span><strong id="detailPremium">—</strong></div>
+              <div class="profile-item"><span>Сессия</span><strong id="detailSession">—</strong></div>
+              <div class="profile-item"><span>Последняя синхронизация</span><strong id="detailLastSync">—</strong></div>
+            </div>
+            <div class="mini-log-list" id="detailLogs"></div>
+          </div>
         </div>
 
         <div id="settingsTab" class="tab-panel hidden">
@@ -183,12 +210,15 @@
               <h3>Управление модулями</h3>
               <span class="badge success">live</span>
             </div>
-            <div class="table-wrap">
-              <table class="data-table">
-                <thead><tr><th>Модуль</th><th>Команды</th><th>Статус</th><th>Действие</th></tr></thead>
-                <tbody id="modulesTable"></tbody>
-              </table>
+            <div class="module-search-box">
+              <input type="text" id="moduleFilter" placeholder="Поиск модулей..." class="module-search-input">
+              <div class="module-filter-buttons">
+                <button data-filter="all" class="filter-btn filter-btn--active">Все</button>
+                <button data-filter="enabled" class="filter-btn">Включено</button>
+                <button data-filter="disabled" class="filter-btn">Отключено</button>
+              </div>
             </div>
+            <div class="modules-grid" id="modulesGrid"></div>
           </div>
         </div>
 
@@ -211,6 +241,14 @@
                 <button class="button button--ghost" data-action="refresh-dashboard">Обновить данные</button>
               </div>
             </div>
+          </div>
+
+          <div class="card card--full">
+            <div class="card-header">
+              <h3>Сервисы</h3>
+              <span class="badge neutral">status</span>
+            </div>
+            <div class="service-cards" id="serviceCards"></div>
           </div>
         </div>
 
