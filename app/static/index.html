@@ -95,6 +95,7 @@
           <button data-tab="accounts" class="tab-button tab-button--active">Аккаунты</button>
           <button data-tab="settings" class="tab-button">Настройки</button>
           <button data-tab="modules" class="tab-button">Модули</button>
+          <button data-tab="overview" class="tab-button">Обзор</button>
           <button data-tab="logs" class="tab-button">Логи</button>
           <button data-tab="profile" class="tab-button">Профиль</button>
           <button data-tab="about" class="tab-button">О проекте</button>
@@ -187,6 +188,28 @@
                 <thead><tr><th>Модуль</th><th>Команды</th><th>Статус</th><th>Действие</th></tr></thead>
                 <tbody id="modulesTable"></tbody>
               </table>
+            </div>
+          </div>
+        </div>
+
+        <div id="overviewTab" class="tab-panel hidden">
+          <div class="grid-two">
+            <div class="card">
+              <div class="card-header">
+                <h3>Состояние системы</h3>
+                <span class="badge success">live</span>
+              </div>
+              <div class="status-grid" id="overviewGrid"></div>
+            </div>
+            <div class="card">
+              <div class="card-header">
+                <h3>Быстрые действия</h3>
+                <span class="badge neutral">actions</span>
+              </div>
+              <div class="action-stack">
+                <button class="button button--primary" data-action="restart-worker">Перезапустить worker</button>
+                <button class="button button--ghost" data-action="refresh-dashboard">Обновить данные</button>
+              </div>
             </div>
           </div>
         </div>

@@ -9,6 +9,7 @@ const accountsTable = $('#accountsTable');
 const settingsTable = $('#settingsTable');
 const modulesTable = $('#modulesTable');
 const logsTable = $('#logsTable');
+const overviewGrid = $('#overviewGrid');
 const tabs = $$('.tab-button');
 const onlineBadge = $('#onlineBadge');
 
@@ -151,16 +152,32 @@ const loadLogs = async () => {
   return logs;
 };
 
+const loadOverview = async () => {
+  const overview = await api('/api/settings/overview');
+  overviewGrid.innerHTML = `
+    <div class="status-tile"><span>Redis</span><strong>${overview.redis_status}</strong></div>
+    <div class="status-tile"><span>Database</span><strong>${overview.database_status}</strong></div>
+    <div class="status-tile"><span>Telegram API</span><strong>${overview.telegram_status}</strong></div>
+    <div class="status-tile"><span>Worker</span><strong>${overview.worker_status}</strong></div>
+    <div class="status-tile"><span>Аккаунты</span><strong>${overview.total_accounts}</strong></div>
+    <div class="status-tile"><span>Активные</span><strong>${overview.active_accounts}</strong></div>
+    <div class="status-tile"><span>Логи</span><strong>${overview.total_logs}</strong></div>
+    <div class="status-tile"><span>Настройки</span><strong>${overview.total_settings}</strong></div>
+  `;
+  return overview;
+};
+
 const refreshDashboard = async () => {
-  const [accounts, settings, modules, logs, profile] = await Promise.all([
+  const [accounts, settings, modules, overview, logs, profile] = await Promise.all([
     loadAccounts(),
     loadSettings(),
     loadModules(),
+    loadOverview(),
     loadLogs(),
     loadProfile(),
   ]);
   updateMetrics(accounts, settings, logs);
-  return { accounts, settings, modules, logs, profile };
+  return { accounts, settings, modules, overview, logs, profile };
 };
 
 const showDashboard = async () => {
@@ -236,6 +253,24 @@ const init = async () => {
       showMessage('Настройки сохранены');
       await loadSettings();
       updateMetrics(await loadAccounts(), await loadSettings(), await loadLogs());
+    } catch (error) {
+      showMessage(error.message, 'error');
+    }
+  });
+
+  document.querySelector('[data-action="restart-worker"]').addEventListener('click', async () => {
+    try {
+      const result = await api('/api/settings/system/restart', { method: 'POST' });
+      showMessage(result.message || 'Перезапуск запрошен');
+    } catch (error) {
+      showMessage(error.message, 'error');
+    }
+  });
+
+  document.querySelector('[data-action="refresh-dashboard"]').addEventListener('click', async () => {
+    try {
+      await refreshDashboard();
+      showMessage('Данные обновлены');
     } catch (error) {
       showMessage(error.message, 'error');
     }

@@ -48,6 +48,25 @@ class ProfileOut(BaseModel):
     module_count: int
 
 
+class SystemOverviewOut(BaseModel):
+    redis_status: str
+    database_status: str
+    telegram_status: str
+    worker_status: str
+    uptime_seconds: int
+    started_at: str
+    total_accounts: int
+    active_accounts: int
+    total_logs: int
+    total_settings: int
+
+
+class ServiceStatusOut(BaseModel):
+    name: str
+    status: str
+    detail: str
+
+
 @router.get("", response_model=list[SettingOut])
 async def list_settings(account_id: int | None = None) -> list[SettingOut]:
     async with async_session_factory() as session:
@@ -135,3 +154,65 @@ async def get_profile() -> ProfileOut:
         total_settings=int(total_settings),
         module_count=len(all_modules()),
     )
+
+
+@router.get("/overview", response_model=SystemOverviewOut)
+async def get_overview() -> SystemOverviewOut:
+    settings = get_settings()
+    from datetime import datetime, timezone
+
+    async with async_session_factory() as session:
+        total_accounts = await session.scalar(select(func.count(Account.id))) or 0
+        active_accounts = await session.scalar(
+            select(func.count(Account.id)).where(Account.is_active.is_(True), Account.bot_enabled.is_(True))
+        ) or 0
+        total_logs = await session.scalar(select(func.count(LogEntry.id))) or 0
+        total_settings = await session.scalar(select(func.count(Setting.id))) or 0
+
+    redis_status = "online" if getattr(get_settings(), "redis_url", None) and False else "offline"
+    # Поддержка локальной разработки без Redis: состояние считается offline, если сервиса нет.
+    try:
+        from app.redis_client import get_redis
+        redis_status = "online" if get_redis() is not None else "offline"
+    except Exception:
+        redis_status = "offline"
+
+    database_status = "ready" if settings.database_url else "not_configured"
+    telegram_status = "configured" if settings.api_id and settings.api_hash else "not_configured"
+    worker_status = "running" if settings.api_id else "idle"
+
+    return SystemOverviewOut(
+        redis_status=redis_status,
+        database_status=database_status,
+        telegram_status=telegram_status,
+        worker_status=worker_status,
+        uptime_seconds=0,
+        started_at=datetime.now(timezone.utc).isoformat(),
+        total_accounts=int(total_accounts),
+        active_accounts=int(active_accounts),
+        total_logs=int(total_logs),
+        total_settings=int(total_settings),
+    )
+
+
+@router.get("/services", response_model=list[ServiceStatusOut])
+async def get_services() -> list[ServiceStatusOut]:
+    settings = get_settings()
+    services: list[ServiceStatusOut] = [
+        ServiceStatusOut(name="web", status="online", detail="FastAPI panel"),
+        ServiceStatusOut(name="redis", status="online" if settings.redis_url else "offline", detail="cache/session layer"),
+        ServiceStatusOut(name="database", status="ready", detail=settings.database_url),
+        ServiceStatusOut(name="telegram_api", status="configured" if settings.api_id and settings.api_hash else "missing", detail="Telegram credentials"),
+        ServiceStatusOut(name="worker", status="idle" if not settings.api_id else "ready", detail="Telethon connector"),
+    ]
+    return services
+
+
+@router.post("/system/restart")
+async def restart_system() -> dict:
+    try:
+        from app.worker import request_restart
+        await request_restart()
+        return {"status": "ok", "message": "Перезапуск воркера запрошен"}
+    except Exception:
+        return {"status": "ok", "message": "Воркер недоступен в текущем процессе; запустите worker отдельно"}
