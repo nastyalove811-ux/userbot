@@ -4,24 +4,67 @@
 """
 from __future__ import annotations
 
+from app.db import Setting, async_session_factory
 from app.modules.base import CommandContext, command
+from sqlalchemy import select
 
 
-# Словарь триггеров и ответов
-_TOXIC_TRIGGERS = {
-    "привет": "👋 Привет, уёбок!",
-    "привет": "Слыш, лох, не здоровайся!",
-    "hi": "🚫 Нах отсюда!",
-    "hello": "💀 Убирайся отсюда!",
-}
+async def _get_triggers(account_id: int) -> dict:
+    """Получить все триггеры из БД для аккаунта"""
+    async with async_session_factory() as session:
+        stmt = select(Setting).where(
+            (Setting.account_id == account_id) & (Setting.module == "toxic")
+        )
+        results = await session.execute(stmt)
+        settings = results.scalars().all()
+        
+        triggers = {}
+        for setting in settings:
+            if setting.key.startswith("trigger_"):
+                trigger_word = setting.key.replace("trigger_", "")
+                triggers[trigger_word] = setting.value
+        return triggers
 
-_TOXIC_RESPONSES = [
-    "А ты кто вообще?",
-    "Иди отсюда, плешивый!",
-    "🤡 Ты уже надоел!",
-    "Молчи, клоун!",
-    "Пошел нах!",
-]
+
+async def _set_trigger(account_id: int, trigger_word: str, response: str) -> None:
+    """Сохранить триггер в БД"""
+    async with async_session_factory() as session:
+        stmt = select(Setting).where(
+            (Setting.account_id == account_id) &
+            (Setting.module == "toxic") &
+            (Setting.key == f"trigger_{trigger_word}")
+        )
+        result = await session.execute(stmt)
+        existing = result.scalar()
+        
+        if existing:
+            existing.value = response
+        else:
+            session.add(Setting(
+                account_id=account_id,
+                module="toxic",
+                key=f"trigger_{trigger_word}",
+                value=response
+            ))
+        await session.commit()
+
+
+async def _del_trigger(account_id: int, trigger_word: str) -> bool:
+    """Удалить триггер из БД"""
+    async with async_session_factory() as session:
+        stmt = select(Setting).where(
+            (Setting.account_id == account_id) &
+            (Setting.module == "toxic") &
+            (Setting.key == f"trigger_{trigger_word}")
+        )
+        result = await session.execute(stmt)
+        setting = result.scalar()
+        
+        if setting:
+            await session.delete(setting)
+            await session.commit()
+            return True
+        return False
 
 
 @command(
@@ -33,10 +76,9 @@ _TOXIC_RESPONSES = [
 async def cmd_toxic(ctx: CommandContext) -> None:
     """Включить режим авто-троллинга на триггеры"""
     if not ctx.args:
-        await ctx.event.reply(
-            "Использование: {ctx.prefix}toxic <on|off|list>\n"
-            "on — включить\noff — отключить\nlist — список триггеров"
-        )
+        triggers = await _get_triggers(ctx.account_id)
+        status = f"🎭 Авто-троллинг:\nТриггеров добавлено: {len(triggers)}"
+        await ctx.event.reply(status)
         return
     
     action = ctx.args[0].lower()
@@ -46,10 +88,16 @@ async def cmd_toxic(ctx: CommandContext) -> None:
     elif action == "off":
         await ctx.event.reply("😇 Авто-троллинг отключен, буду вежлив")
     elif action == "list":
-        triggers_list = "\n".join(f"• {trigger}" for trigger in _TOXIC_TRIGGERS.keys())
-        await ctx.event.reply(f"📋 Активные триггеры:\n{triggers_list}")
+        triggers = await _get_triggers(ctx.account_id)
+        if not triggers:
+            await ctx.event.reply("📋 Триггеры не добавлены")
+        else:
+            trigger_list = "\n".join(f"• {t}: {r}" for t, r in triggers.items())
+            await ctx.event.reply(f"📋 Активные триггеры:\n{trigger_list}")
     else:
-        await ctx.event.reply(f"❌ Неизвестная команда: {action}")
+        await ctx.event.reply(
+            f"Использование: {ctx.prefix}toxic <on|off|list>"
+        )
 
 
 @command(
@@ -69,7 +117,7 @@ async def cmd_addtrigger(ctx: CommandContext) -> None:
     trigger = ctx.args[0].lower()
     response = " ".join(ctx.args[1:])
     
-    _TOXIC_TRIGGERS[trigger] = response
+    await _set_trigger(ctx.account_id, trigger, response)
     await ctx.event.reply(f"✅ Триггер '{trigger}' добавлен с ответом: {response}")
 
 
@@ -87,8 +135,7 @@ async def cmd_deltrigger(ctx: CommandContext) -> None:
     
     trigger = ctx.args[0].lower()
     
-    if trigger in _TOXIC_TRIGGERS:
-        del _TOXIC_TRIGGERS[trigger]
+    if await _del_trigger(ctx.account_id, trigger):
         await ctx.event.reply(f"✅ Триггер '{trigger}' удален")
     else:
         await ctx.event.reply(f"❌ Триггер '{trigger}' не найден")

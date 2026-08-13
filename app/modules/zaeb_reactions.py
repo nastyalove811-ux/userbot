@@ -4,15 +4,67 @@
 """
 from __future__ import annotations
 
+from app.db import Setting, async_session_factory
 from app.modules.base import CommandContext, command
+from sqlalchemy import select
 
 
-# Конфиг автореакций
-_REACTIONS_CONFIG = {
-    "enabled": False,
-    "users": {},  # {user_id: {emoji: ["👍", "❤️"], messages: [...]}}
-    "default_emoji": "👍",
-}
+async def _get_reactions(account_id: int) -> dict:
+    """Получить конфиг реакций из БД"""
+    async with async_session_factory() as session:
+        stmt = select(Setting).where(
+            (Setting.account_id == account_id) & (Setting.module == "zaeb_reactions")
+        )
+        results = await session.execute(stmt)
+        settings = results.scalars().all()
+        
+        reactions = {}
+        for setting in settings:
+            if setting.key.startswith("user_"):
+                user_id = setting.key.replace("user_", "")
+                reactions[user_id] = setting.value
+        return reactions
+
+
+async def _set_reaction(account_id: int, user_id: str, reaction: str) -> None:
+    """Сохранить реакцию в БД"""
+    async with async_session_factory() as session:
+        stmt = select(Setting).where(
+            (Setting.account_id == account_id) &
+            (Setting.module == "zaeb_reactions") &
+            (Setting.key == f"user_{user_id}")
+        )
+        result = await session.execute(stmt)
+        existing = result.scalar()
+        
+        if existing:
+            existing.value = reaction
+        else:
+            session.add(Setting(
+                account_id=account_id,
+                module="zaeb_reactions",
+                key=f"user_{user_id}",
+                value=reaction
+            ))
+        await session.commit()
+
+
+async def _del_reaction(account_id: int, user_id: str) -> bool:
+    """Удалить реакцию из БД"""
+    async with async_session_factory() as session:
+        stmt = select(Setting).where(
+            (Setting.account_id == account_id) &
+            (Setting.module == "zaeb_reactions") &
+            (Setting.key == f"user_{user_id}")
+        )
+        result = await session.execute(stmt)
+        setting = result.scalar()
+        
+        if setting:
+            await session.delete(setting)
+            await session.commit()
+            return True
+        return False
 
 
 @command(
@@ -23,30 +75,29 @@ _REACTIONS_CONFIG = {
 )
 async def cmd_zaebr(ctx: CommandContext) -> None:
     """Управление автореакциями ZaebReactions"""
+    reactions = await _get_reactions(ctx.account_id)
+    
     if not ctx.args:
         status = "🎭 Статус ZaebReactions:\n"
-        status += f"Включено: {'✅' if _REACTIONS_CONFIG['enabled'] else '❌'}\n"
-        status += f"Отслеживаемых пользователей: {len(_REACTIONS_CONFIG['users'])}"
+        status += f"Отслеживаемых пользователей: {len(reactions)}"
         await ctx.event.reply(status)
         return
     
     action = ctx.args[0].lower()
     
     if action == "on":
-        _REACTIONS_CONFIG["enabled"] = True
         await ctx.event.reply("✅ Автореакции включены!")
     elif action == "off":
-        _REACTIONS_CONFIG["enabled"] = False
         await ctx.event.reply("❌ Автореакции отключены")
     elif action == "list":
-        if not _REACTIONS_CONFIG["users"]:
+        if not reactions:
             await ctx.event.reply("📋 Список автореакций пуст")
         else:
-            user_list = "\n".join(
-                f"• user_{uid}: {cfg.get('emoji', ['👍'])}"
-                for uid, cfg in _REACTIONS_CONFIG["users"].items()
+            reaction_list = "\n".join(
+                f"• {uid}: {reaction}"
+                for uid, reaction in reactions.items()
             )
-            await ctx.event.reply(f"📋 Автореакции:\n{user_list}")
+            await ctx.event.reply(f"📋 Автореакции:\n{reaction_list}")
     else:
         await ctx.event.reply(
             f"Использование: {ctx.prefix}zaebr <on|off|list>"
@@ -70,6 +121,7 @@ async def cmd_addzaebr(ctx: CommandContext) -> None:
     user_target = ctx.args[0]
     reaction = " ".join(ctx.args[1:])
     
+    await _set_reaction(ctx.account_id, user_target, reaction)
     await ctx.event.reply(
         f"✅ Добавлена автореакция на {user_target}:\n"
         f"📌 Реакция: {reaction}"
@@ -89,7 +141,11 @@ async def cmd_delzaebr(ctx: CommandContext) -> None:
         return
     
     user_target = ctx.args[0]
-    await ctx.event.reply(f"✅ Автореакция с {user_target} удалена")
+    
+    if await _del_reaction(ctx.account_id, user_target):
+        await ctx.event.reply(f"✅ Автореакция с {user_target} удалена")
+    else:
+        await ctx.event.reply(f"❌ Реакция на {user_target} не найдена")
 
 
 @command(
@@ -109,6 +165,7 @@ async def cmd_zaebr_emoji(ctx: CommandContext) -> None:
     user_target = ctx.args[0]
     emoji = ctx.args[1]
     
+    await _set_reaction(ctx.account_id, user_target, emoji)
     await ctx.event.reply(
         f"✅ Эмодзи для {user_target} установлен: {emoji}"
     )
@@ -131,6 +188,7 @@ async def cmd_zaebr_message(ctx: CommandContext) -> None:
     user_target = ctx.args[0]
     message = " ".join(ctx.args[1:])
     
+    await _set_reaction(ctx.account_id, user_target, message)
     await ctx.event.reply(
         f"✅ Автоответ для {user_target} установлен:\n"
         f"💬 \"{message}\""

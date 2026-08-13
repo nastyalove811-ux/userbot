@@ -4,7 +4,30 @@
 """
 from __future__ import annotations
 
+from telethon.tl.types import Channel, Chat
+
 from app.modules.base import CommandContext, command
+
+
+async def _get_chat_members(ctx: CommandContext, exclude_bots: bool = False) -> list[str]:
+    """Получить список всех членов чата"""
+    chat = await ctx.event.get_chat()
+    members = []
+    
+    try:
+        async for member in ctx.client.iter_participants(chat):
+            if exclude_bots and member.bot:
+                continue
+            
+            # Пытаемся получить юзернейм, если его нет - пропускаем
+            if member.username:
+                members.append(f"@{member.username}")
+            elif member.first_name:
+                members.append(f"[{member.first_name}](tg://user?id={member.id})")
+    except Exception:
+        pass
+    
+    return members
 
 
 @command(
@@ -19,13 +42,26 @@ async def cmd_tagall(ctx: CommandContext) -> None:
         await ctx.event.reply("❌ Эта команда работает только в группах")
         return
     
-    message = " ".join(ctx.args) if ctx.args else "Привет всем!"
+    message = " ".join(ctx.args) if ctx.args else "Привет, все!"
     
-    # В реальной реализации здесь была бы получение всех участников чата
-    await ctx.event.reply(
-        f"@user1 @user2 @user3 @user4 @user5 ... (и ещё N пользователей)\n\n"
-        f"💬 {message}"
-    )
+    members = await _get_chat_members(ctx)
+    
+    if not members:
+        await ctx.event.reply("❌ Не удалось получить список участников")
+        return
+    
+    # Разбиваем на части (макс 50 упоминаний в одном сообщении)
+    chunk_size = 50
+    chunks = [members[i:i + chunk_size] for i in range(0, len(members), chunk_size)]
+    
+    for i, chunk in enumerate(chunks):
+        mentions = " ".join(chunk)
+        if i == 0:
+            await ctx.event.respond(f"{mentions}\n\n💬 {message}")
+        else:
+            await ctx.event.respond(mentions)
+    
+    await ctx.event.delete()
 
 
 @command(
@@ -40,11 +76,25 @@ async def cmd_tagallnobot(ctx: CommandContext) -> None:
         await ctx.event.reply("❌ Эта команда работает только в группах")
         return
     
-    message = " ".join(ctx.args) if ctx.args else "Привет всем (кроме ботов)!"
-    await ctx.event.reply(
-        f"@user1 @user2 @user3 @user4 @user5 ... (без ботов)\n\n"
-        f"💬 {message}"
-    )
+    message = " ".join(ctx.args) if ctx.args else "Привет, люди!"
+    
+    members = await _get_chat_members(ctx, exclude_bots=True)
+    
+    if not members:
+        await ctx.event.reply("❌ Не удалось получить список участников")
+        return
+    
+    chunk_size = 50
+    chunks = [members[i:i + chunk_size] for i in range(0, len(members), chunk_size)]
+    
+    for i, chunk in enumerate(chunks):
+        mentions = " ".join(chunk)
+        if i == 0:
+            await ctx.event.respond(f"{mentions}\n\n💬 {message}")
+        else:
+            await ctx.event.respond(mentions)
+    
+    await ctx.event.delete()
 
 
 @command(
@@ -56,17 +106,33 @@ async def cmd_tagallnobot(ctx: CommandContext) -> None:
 async def cmd_tagrole(ctx: CommandContext) -> None:
     """Упомянуть только пользователей с определённой ролью"""
     if not ctx.args:
-        await ctx.event.reply(f"Использование: {ctx.prefix}tagrole <роль> [сообщение]")
+        await ctx.event.reply(f"Использование: {ctx.prefix}tagrole <admin|user> [сообщение]")
         return
     
-    role = ctx.args[0]
-    message = " ".join(ctx.args[1:]) if len(ctx.args) > 1 else f"Все {role}!"
+    role = ctx.args[0].lower()
+    message = " ".join(ctx.args[1:]) if len(ctx.args) > 1 else f"Все с ролью {role}!"
     
-    await ctx.event.reply(
-        f"Упоминание пользователей с ролью '{role}':\n"
-        f"@admin1 @admin2 @moderator1\n\n"
-        f"💬 {message}"
-    )
+    chat = await ctx.event.get_chat()
+    members = []
+    
+    try:
+        async for member in ctx.client.iter_participants(chat, filter=None):
+            if role == "admin" and member.adminRights:
+                if member.username:
+                    members.append(f"@{member.username}")
+            elif role == "user" and not member.adminRights and not member.creatorRights:
+                if member.username:
+                    members.append(f"@{member.username}")
+    except Exception:
+        pass
+    
+    if not members:
+        await ctx.event.reply(f"❌ Пользователей с ролью '{role}' не найдено")
+        return
+    
+    mentions = " ".join(members[:50])
+    await ctx.event.respond(f"{mentions}\n\n💬 {message}")
+    await ctx.event.delete()
 
 
 @command(
@@ -78,10 +144,25 @@ async def cmd_tagrole(ctx: CommandContext) -> None:
 async def cmd_tagadmins(ctx: CommandContext) -> None:
     """Упомянуть только администраторов"""
     message = " ".join(ctx.args) if ctx.args else "Нужны администраторы!"
-    await ctx.event.reply(
-        f"@admin1 @admin2 @admin3\n\n"
-        f"💬 {message}"
-    )
+    
+    chat = await ctx.event.get_chat()
+    admins = []
+    
+    try:
+        async for member in ctx.client.iter_participants(chat):
+            if member.adminRights or member.creatorRights:
+                if member.username:
+                    admins.append(f"@{member.username}")
+    except Exception:
+        pass
+    
+    if not admins:
+        await ctx.event.reply("❌ Администраторы не найдены")
+        return
+    
+    mentions = " ".join(admins)
+    await ctx.event.respond(f"{mentions}\n\n💬 {message}")
+    await ctx.event.delete()
 
 
 @command(
@@ -93,10 +174,26 @@ async def cmd_tagadmins(ctx: CommandContext) -> None:
 async def cmd_tagmods(ctx: CommandContext) -> None:
     """Упомянуть только модераторов"""
     message = " ".join(ctx.args) if ctx.args else "Требуется модерация!"
-    await ctx.event.reply(
-        f"@moder1 @moder2 @moder3\n\n"
-        f"💬 {message}"
-    )
+    
+    chat = await ctx.event.get_chat()
+    mods = []
+    
+    try:
+        async for member in ctx.client.iter_participants(chat):
+            # Модераторы это обычно админы без create_right
+            if member.adminRights and not member.creatorRights:
+                if member.username:
+                    mods.append(f"@{member.username}")
+    except Exception:
+        pass
+    
+    if not mods:
+        await ctx.event.reply("❌ Модераторы не найдены")
+        return
+    
+    mentions = " ".join(mods[:50])
+    await ctx.event.respond(f"{mentions}\n\n💬 {message}")
+    await ctx.event.delete()
 
 
 @command(
@@ -108,10 +205,17 @@ async def cmd_tagmods(ctx: CommandContext) -> None:
 async def cmd_tagsilent(ctx: CommandContext) -> None:
     """Упомянуть всех но без звука для них"""
     message = " ".join(ctx.args) if ctx.args else "Тихое упоминание"
-    await ctx.event.reply(
-        f"‌‌‌‌@user1 @user2 @user3 @user4 @user5\n\n"
-        f"💬 {message}"
-    )
+    
+    members = await _get_chat_members(ctx)
+    
+    if not members:
+        await ctx.event.reply("❌ Не удалось получить список участников")
+        return
+    
+    # Используем нулевые символы для "тихого" упоминания
+    silent_mentions = " ".join(members[:30])
+    await ctx.event.respond(f"‌‌‌‌{silent_mentions}\n\n💬 {message}", silent=True)
+    await ctx.event.delete()
 
 
 @command(
@@ -122,11 +226,28 @@ async def cmd_tagsilent(ctx: CommandContext) -> None:
 )
 async def cmd_tagcount(ctx: CommandContext) -> None:
     """Показать статистику упоминаний"""
-    await ctx.event.reply(
-        "📊 Статистика чата:\n"
-        "👥 Всего пользователей: 150\n"
-        "👤 Реальных (не ботов): 130\n"
-        "🤖 Ботов: 20\n"
-        "⭐ Администраторов: 5\n"
-        "🟢 Модераторов: 15"
-    )
+    chat = await ctx.event.get_chat()
+    
+    try:
+        total = 0
+        bots = 0
+        admins = 0
+        
+        async for member in ctx.client.iter_participants(chat):
+            total += 1
+            if member.bot:
+                bots += 1
+            if member.adminRights or member.creatorRights:
+                admins += 1
+        
+        humans = total - bots
+        
+        await ctx.event.reply(
+            f"📊 Статистика чата:\n"
+            f"👥 Всего пользователей: {total}\n"
+            f"👤 Реальных (не ботов): {humans}\n"
+            f"🤖 Ботов: {bots}\n"
+            f"⭐ Администраторов: {admins}"
+        )
+    except Exception as e:
+        await ctx.event.reply(f"❌ Ошибка при получении статистики: {str(e)}")
