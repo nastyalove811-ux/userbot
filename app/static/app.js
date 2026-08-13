@@ -7,7 +7,6 @@ const messageBox = $('#messageBox');
 const logoutButton = $('#logoutButton');
 const accountsTable = $('#accountsTable');
 const settingsTable = $('#settingsTable');
-const modulesTable = $('#modulesTable');
 const logsTable = $('#logsTable');
 const overviewGrid = $('#overviewGrid');
 const serviceCards = $('#serviceCards');
@@ -320,99 +319,105 @@ const checkAuth = async () => {
 const init = async () => {
   $$('.tab-button').forEach(button => button.addEventListener('click', () => switchTab(button.dataset.tab)));
 
-  $('#loginForm').addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const data = Object.fromEntries(new FormData(event.target));
-    try {
-      await api('/api/auth/login', { method: 'POST', body: JSON.stringify(data) });
-      showMessage('Вход выполнен успешно');
-      await showDashboard();
-    } catch (error) {
-      showMessage(error.message, 'error');
-    }
-  });
-
-  $('#sendCodeForm').addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const data = Object.fromEntries(new FormData(event.target));
-    try {
-      await api('/api/accounts/send-code', { method: 'POST', body: JSON.stringify(data) });
-      showMessage('Код отправлен. Введите его для подтверждения.');
-    } catch (error) {
-      showMessage(error.message, 'error');
-    }
-  });
-
-  $('#confirmCodeForm').addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const data = Object.fromEntries(new FormData(event.target));
-    try {
-      await api('/api/accounts/confirm-code', { method: 'POST', body: JSON.stringify(data) });
-      showMessage('Аккаунт успешно добавлен');
-      await refreshDashboard();
-    } catch (error) {
-      showMessage(error.message, 'error');
-    }
-  });
-
-  $('#settingsForm').addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const data = Object.fromEntries(new FormData(event.target));
-    data.account_id = data.account_id ? Number(data.account_id) : null;
-    try {
-      await api('/api/settings', { method: 'PUT', body: JSON.stringify(data) });
-      showMessage('Настройки сохранены');
-      await loadSettings();
-      updateMetrics(await loadAccounts(), await loadSettings(), await loadLogs());
-    } catch (error) {
-      showMessage(error.message, 'error');
-    }
-  });
-
-  document.querySelector('[data-action="restart-worker"]').addEventListener('click', async () => {
-    try {
-      const result = await api('/api/settings/system/restart', { method: 'POST' });
-      showMessage(result.message || 'Перезапуск запрошен');
-    } catch (error) {
-      showMessage(error.message, 'error');
-    }
-  });
-
-  document.querySelector('[data-action="refresh-dashboard"]').addEventListener('click', async () => {
-    try {
-      await refreshDashboard();
-      showMessage('Данные обновлены');
-    } catch (error) {
-      showMessage(error.message, 'error');
-    }
-  });
-
-  accountsTable.addEventListener('click', async (event) => {
-    const row = event.target.closest('tr[data-account-id]');
-    if (row) {
-      selectedAccountId = Number(row.dataset.accountId);
-      updateAccountContext();
-      await loadAccountDetails(selectedAccountId);
-      await refreshDashboard();
-      $$('.account-row').forEach(item => item.classList.toggle('selected', Number(item.dataset.accountId) === selectedAccountId));
-    }
-
-    const button = event.target.closest('button[data-action]');
-    if (!button) return;
-    const id = button.dataset.id;
-    try {
-      if (button.dataset.action === 'toggle') {
-        await api(`/api/accounts/${id}/toggle`, { method: 'POST' });
-        showMessage('Состояние аккаунта обновлено');
-      } else if (button.dataset.action === 'delete') {
-        await api(`/api/accounts/${id}`, { method: 'DELETE' });
-        showMessage('Аккаунт удалён');
+  document.addEventListener('submit', async (event) => {
+    const form = event.target;
+    
+    if (form.id === 'loginForm') {
+      event.preventDefault();
+      const data = Object.fromEntries(new FormData(form));
+      try {
+        await api('/api/auth/login', { method: 'POST', body: JSON.stringify(data) });
+        showMessage('Вход выполнен успешно');
+        await showDashboard();
+      } catch (error) {
+        showMessage(error.message, 'error');
       }
-      await refreshDashboard();
-    } catch (error) {
-      showMessage(error.message, 'error');
+    } else if (form.id === 'sendCodeForm') {
+      event.preventDefault();
+      const data = Object.fromEntries(new FormData(form));
+      try {
+        await api('/api/accounts/send-code', { method: 'POST', body: JSON.stringify(data) });
+        showMessage('Код отправлен. Введите его для подтверждения.');
+      } catch (error) {
+        showMessage(error.message, 'error');
+      }
+    } else if (form.id === 'confirmCodeForm') {
+      event.preventDefault();
+      const data = Object.fromEntries(new FormData(form));
+      try {
+        await api('/api/accounts/confirm-code', { method: 'POST', body: JSON.stringify(data) });
+        showMessage('Аккаунт успешно добавлен');
+        await refreshDashboard();
+      } catch (error) {
+        showMessage(error.message, 'error');
+      }
+    } else if (form.id === 'settingsForm') {
+      event.preventDefault();
+      const data = Object.fromEntries(new FormData(form));
+      data.account_id = data.account_id ? Number(data.account_id) : null;
+      try {
+        await api('/api/settings', { method: 'PUT', body: JSON.stringify(data) });
+        showMessage('Настройки сохранены');
+        await loadSettings();
+        updateMetrics(await loadAccounts(), await loadSettings(), await loadLogs());
+      } catch (error) {
+        showMessage(error.message, 'error');
+      }
     }
   });
+
+  const restartBtn = document.querySelector('[data-action="restart-worker"]');
+  if (restartBtn) {
+    restartBtn.addEventListener('click', async () => {
+      try {
+        const result = await api('/api/settings/system/restart', { method: 'POST' });
+        showMessage(result.message || 'Перезапуск запрошен');
+      } catch (error) {
+        showMessage(error.message, 'error');
+      }
+    });
+  }
+
+  const refreshBtn = document.querySelector('[data-action="refresh-dashboard"]');
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', async () => {
+      try {
+        await refreshDashboard();
+        showMessage('Данные обновлены');
+      } catch (error) {
+        showMessage(error.message, 'error');
+      }
+    });
+  }
+
+  if (accountsTable) {
+    accountsTable.addEventListener('click', async (event) => {
+      const row = event.target.closest('tr[data-account-id]');
+      if (row) {
+        selectedAccountId = Number(row.dataset.accountId);
+        updateAccountContext();
+        await loadAccountDetails(selectedAccountId);
+        await refreshDashboard();
+        $$('.account-row').forEach(item => item.classList.toggle('selected', Number(item.dataset.accountId) === selectedAccountId));
+      }
+
+      const button = event.target.closest('button[data-action]');
+      if (!button) return;
+      const id = button.dataset.id;
+      try {
+        if (button.dataset.action === 'toggle') {
+          await api(`/api/accounts/${id}/toggle`, { method: 'POST' });
+          showMessage('Состояние аккаунта обновлено');
+        } else if (button.dataset.action === 'delete') {
+          await api(`/api/accounts/${id}`, { method: 'DELETE' });
+          showMessage('Аккаунт удалён');
+        }
+        await refreshDashboard();
+      } catch (error) {
+        showMessage(error.message, 'error');
+      }
+    });
+  }
 
   document.addEventListener('click', async (event) => {
     const button = event.target.closest('button[data-action="toggle-module"]');
@@ -446,15 +451,17 @@ const init = async () => {
     });
   });
 
-  logoutButton.addEventListener('click', async () => {
-    try {
-      await api('/api/auth/logout', { method: 'POST' });
-      showMessage('Выход выполнен');
-      showLogin();
-    } catch (error) {
-      showMessage(error.message, 'error');
-    }
-  });
+  if (logoutButton) {
+    logoutButton.addEventListener('click', async () => {
+      try {
+        await api('/api/auth/logout', { method: 'POST' });
+        showMessage('Выход выполнен');
+        showLogin();
+      } catch (error) {
+        showMessage(error.message, 'error');
+      }
+    });
+  }
 
   switchTab('accounts');
   setBadge(false);
