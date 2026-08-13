@@ -94,7 +94,9 @@
         <div class="tabs">
           <button data-tab="accounts" class="tab-button tab-button--active">Аккаунты</button>
           <button data-tab="settings" class="tab-button">Настройки</button>
+          <button data-tab="modules" class="tab-button">Модули</button>
           <button data-tab="logs" class="tab-button">Логи</button>
+          <button data-tab="profile" class="tab-button">Профиль</button>
           <button data-tab="about" class="tab-button">О проекте</button>
         </div>
 
@@ -174,6 +176,21 @@
           </div>
         </div>
 
+        <div id="modulesTab" class="tab-panel hidden">
+          <div class="card card--full">
+            <div class="card-header">
+              <h3>Управление модулями</h3>
+              <span class="badge success">live</span>
+            </div>
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead><tr><th>Модуль</th><th>Команды</th><th>Статус</th><th>Действие</th></tr></thead>
+                <tbody id="modulesTable"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
         <div id="logsTab" class="tab-panel hidden">
           <div class="card card--full">
             <div class="card-header">
@@ -185,6 +202,35 @@
                 <thead><tr><th>ID</th><th>Аккаунт</th><th>Тип</th><th>Чат</th><th>Пользователь</th><th>Сообщение</th></tr></thead>
                 <tbody id="logsTable"></tbody>
               </table>
+            </div>
+          </div>
+        </div>
+
+        <div id="profileTab" class="tab-panel hidden">
+          <div class="grid-two">
+            <div class="card">
+              <div class="card-header">
+                <h3>Профиль владельца</h3>
+                <span class="badge neutral">owner</span>
+              </div>
+              <div class="profile-grid">
+                <div class="profile-item"><span>Логин</span><strong id="profileLogin">—</strong></div>
+                <div class="profile-item"><span>Admin ID</span><strong id="profileAdminId">—</strong></div>
+                <div class="profile-item"><span>Префикс</span><strong id="profilePrefix">—</strong></div>
+                <div class="profile-item"><span>Язык</span><strong id="profileLang">—</strong></div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-header">
+                <h3>Статистика</h3>
+                <span class="badge success">overview</span>
+              </div>
+              <div class="profile-grid">
+                <div class="profile-item"><span>Всего аккаунтов</span><strong id="profileAccountsTotal">0</strong></div>
+                <div class="profile-item"><span>Активных</span><strong id="profileAccountsActive">0</strong></div>
+                <div class="profile-item"><span>Логов</span><strong id="profileLogsTotal">0</strong></div>
+                <div class="profile-item"><span>Модулей</span><strong id="profileModulesTotal">0</strong></div>
+              </div>
             </div>
           </div>
         </div>

@@ -7,6 +7,7 @@ const messageBox = $('#messageBox');
 const logoutButton = $('#logoutButton');
 const accountsTable = $('#accountsTable');
 const settingsTable = $('#settingsTable');
+const modulesTable = $('#modulesTable');
 const logsTable = $('#logsTable');
 const tabs = $$('.tab-button');
 const onlineBadge = $('#onlineBadge');
@@ -105,6 +106,34 @@ const loadSettings = async () => {
   return settings;
 };
 
+const loadModules = async () => {
+  const modules = await api('/api/settings/modules');
+  modulesTable.innerHTML = modules.length
+    ? modules.map(module => `
+      <tr>
+        <td>${module.name}</td>
+        <td>${module.commands.slice(0, 6).join(', ')}${module.commands.length > 6 ? '…' : ''}</td>
+        <td><span class="badge ${module.enabled ? 'success' : 'neutral'}">${module.enabled ? 'Включён' : 'Отключён'}</span></td>
+        <td><button data-action="toggle-module" data-module="${module.name}">${module.enabled ? 'Отключить' : 'Включить'}</button></td>
+      </tr>
+    `).join('')
+    : '<tr><td colspan="4">Модули не найдены.</td></tr>';
+  return modules;
+};
+
+const loadProfile = async () => {
+  const profile = await api('/api/settings/profile');
+  document.getElementById('profileLogin').textContent = profile.admin_login;
+  document.getElementById('profileAdminId').textContent = profile.admin_id;
+  document.getElementById('profilePrefix').textContent = profile.default_prefix;
+  document.getElementById('profileLang').textContent = profile.default_lang;
+  document.getElementById('profileAccountsTotal').textContent = String(profile.total_accounts);
+  document.getElementById('profileAccountsActive').textContent = String(profile.active_accounts);
+  document.getElementById('profileLogsTotal').textContent = String(profile.total_logs);
+  document.getElementById('profileModulesTotal').textContent = String(profile.module_count);
+  return profile;
+};
+
 const loadLogs = async () => {
   const logs = await api('/api/logs?limit=100');
   logsTable.innerHTML = logs.length
@@ -123,8 +152,15 @@ const loadLogs = async () => {
 };
 
 const refreshDashboard = async () => {
-  const [accounts, settings, logs] = await Promise.all([loadAccounts(), loadSettings(), loadLogs()]);
+  const [accounts, settings, modules, logs, profile] = await Promise.all([
+    loadAccounts(),
+    loadSettings(),
+    loadModules(),
+    loadLogs(),
+    loadProfile(),
+  ]);
   updateMetrics(accounts, settings, logs);
+  return { accounts, settings, modules, logs, profile };
 };
 
 const showDashboard = async () => {
@@ -218,6 +254,20 @@ const init = async () => {
         showMessage('Аккаунт удалён');
       }
       await refreshDashboard();
+    } catch (error) {
+      showMessage(error.message, 'error');
+    }
+  });
+
+  modulesTable.addEventListener('click', async (event) => {
+    const button = event.target.closest('button[data-action="toggle-module"]');
+    if (!button) return;
+    const moduleName = button.dataset.module;
+
+    try {
+      await api(`/api/settings/modules/${encodeURIComponent(moduleName)}/toggle`, { method: 'POST' });
+      showMessage(`Модуль ${moduleName} обновлён`);
+      await loadModules();
     } catch (error) {
       showMessage(error.message, 'error');
     }
