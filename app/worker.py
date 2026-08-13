@@ -17,10 +17,12 @@ from telethon.sessions import StringSession
 from telethon.tl.types import UserStatusOnline, User
 
 from app.db import Account, BannedWord, LogEntry, async_session_factory, init_models
+# НОВОЕ: добавлены spam, tagall, toxic, zaeb_reactions
 from app.modules import (  # noqa: F401 — импорт регистрирует команды через декоратор @command
     admin, chat, chatstats, clone, contacts, core, info, kurs,
     messagetofile, pingbot, purger, quotes, screenshot, streak,
     swmute, test, typingwatch, urldl, voicy, webshot, welcome, wordle,
+    spam, tagall, toxic, zaeb_reactions,  # <-- новые модули
 )
 from app.modules.base import CommandContext, PermissionDenied, all_commands, check_chat_permission, is_system_admin
 from app.modules.core import get_prefix, get_setting
@@ -130,9 +132,70 @@ async def _dispatch(account_id: int, client: TelegramClient, event) -> None:
             pass
 
 
+# ==================== НОВОЕ: адаптер для авто-реакций ====================
+class TelethonEventAdapter:
+    """
+    Адаптирует объект Telethon-события к интерфейсу, ожидаемому модулями
+    toxic и zaeb_reactions (методы reply, react, pin, delete, ban_user, kick_user).
+    """
+    def __init__(self, event, account_id: int):
+        self.event = event
+        self.account_id = account_id
+        self._client = event.client  # сохраняем клиент для дополнительных методов
+
+    @property
+    def sender_id(self):
+        return self.event.sender_id
+
+    @property
+    def chat_id(self):
+        return self.event.chat_id
+
+    @property
+    def text(self):
+        return self.event.raw_text or ""
+
+    async def reply(self, text: str, parse_mode=None):
+        return await self.event.reply(text)
+
+    async def react(self, emoji: str):
+        """Поставить реакцию (эмодзи) на сообщение (только для ботов)."""
+        try:
+            # В Telethon нет прямого метода, используем client.send_reaction, если доступен
+            await self._client.send_reaction(self.event.chat_id, self.event.id, emoji)
+        except Exception:
+            # Если не поддерживается — игнорируем
+            pass
+
+    async def pin(self):
+        try:
+            await self._client.pin_message(self.event.chat_id, self.event.id)
+        except Exception:
+            pass
+
+    async def delete(self):
+        try:
+            await self.event.delete()
+        except Exception:
+            pass
+
+    async def ban_user(self, user_id: int):
+        try:
+            await self._client.kick_participant(self.event.chat_id, user_id)
+        except Exception:
+            pass
+
+    async def kick_user(self, user_id: int):
+        try:
+            await self._client.kick_participant(self.event.chat_id, user_id)
+        except Exception:
+            pass
+
+
 async def _handle_incoming(account_id: int, client: TelegramClient, event) -> None:
     """Обрабатывает входящие сообщения: тихий мут, автоудаление по словам,
-    авто-распознавание голосовых, огоньки, угадывание слов в Wordle."""
+    авто-распознавание голосовых, огоньки, угадывание слов в Wordle,
+    а также авто-реакции Toxic и ZaebReactions."""
     chat_id = event.chat_id
     sender_id = event.sender_id
 
@@ -173,6 +236,18 @@ async def _handle_incoming(account_id: int, client: TelegramClient, event) -> No
 
     if event.raw_text and not (event.raw_text.startswith(await get_prefix(account_id))):
         await handle_guess(account_id, chat_id, event)
+
+    # ==================== НОВОЕ: авто-реакции Toxic и ZaebReactions ====================
+    if event.raw_text:
+        try:
+            from app.modules.toxic import toxic_auto_react
+            from app.modules.zaeb_reactions import zaebr_auto_react
+
+            adapter = TelethonEventAdapter(event, account_id)
+            await toxic_auto_react(adapter)
+            await zaebr_auto_react(adapter)
+        except Exception as e:
+            logger.exception("Ошибка в авто-реакциях для аккаунта %s: %s", account_id, e)
 
 
 async def _start_client_for_account(account: Account) -> TelegramClient | None:
