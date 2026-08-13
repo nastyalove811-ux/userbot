@@ -42,6 +42,19 @@ class ModuleStatusOut(BaseModel):
     command_count: int
 
 
+class ModuleDetailOut(BaseModel):
+    name: str
+    enabled: bool
+    command_count: int
+    commands: list[dict]  # [{"name": "...", "description": "...", "admin_only": True}]
+
+
+class ModulePresetOut(BaseModel):
+    name: str
+    description: str
+    modules: list[str]
+
+
 class ProfileOut(BaseModel):
     admin_login: str
     admin_id: int
@@ -171,6 +184,154 @@ async def toggle_module(module_name: str, account_id: int | None = None) -> dict
             )
         await session.commit()
     return {"status": "ok", "module": module_name, "enabled": next_value == "1"}
+
+
+@router.get("/modules/{module_name}/details", response_model=ModuleDetailOut)
+async def get_module_details(module_name: str, account_id: int | None = None) -> ModuleDetailOut:
+    available = all_modules()
+    all_cmds = all_commands()
+    
+    if module_name not in available:
+        from fastapi import HTTPException, status
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Модуль '{module_name}' не найден")
+    
+    command_names = available[module_name]
+    
+    async with async_session_factory() as session:
+        if account_id is None:
+            rows = await session.execute(select(Setting).where(Setting.account_id.is_(None)))
+        else:
+            rows = await session.execute(
+                select(Setting).where(or_(Setting.account_id == account_id, Setting.account_id.is_(None)))
+            )
+        
+        entries = rows.scalars().all()
+        merged: dict[str, str] = {}
+        for row in entries:
+            key = f"{row.module}:{row.key}"
+            if row.account_id == account_id or row.account_id is None:
+                merged[key] = row.value
+    
+    key = f"core:module_enabled:{module_name}"
+    enabled_raw = merged.get(key)
+    enabled = enabled_raw != "0" if enabled_raw is not None else True
+    
+    commands = [
+        {
+            "name": cmd_name,
+            "description": all_cmds.get(cmd_name, {}).description or "нет описания",
+            "admin_only": all_cmds.get(cmd_name, {}).admin_only,
+        }
+        for cmd_name in sorted(command_names)
+    ]
+    
+    return ModuleDetailOut(
+        name=module_name,
+        enabled=enabled,
+        command_count=len(commands),
+        commands=commands,
+    )
+
+
+@router.get("/modules/presets", response_model=list[ModulePresetOut])
+async def get_module_presets() -> list[ModulePresetOut]:
+    from app.modules.core import PRESETS
+    
+    return [
+        ModulePresetOut(
+            name=preset_name,
+            description=f"Пресет: {preset_name.capitalize()}",
+            modules=preset_modules if preset_modules != ["*"] else list(all_modules().keys()),
+        )
+        for preset_name, preset_modules in PRESETS.items()
+    ]
+
+
+@router.post("/modules/preset/{preset_name}/apply")
+async def apply_module_preset(preset_name: str, account_id: int | None = None) -> dict:
+    from app.modules.core import PRESETS
+    
+    if preset_name not in PRESETS:
+        from fastapi import HTTPException, status
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Пресет '{preset_name}' не найден")
+    
+    preset_modules = PRESETS[preset_name]
+    if preset_modules == ["*"]:
+        preset_modules = list(all_modules().keys())
+    
+    available = all_modules()
+    
+    async with async_session_factory() as session:
+        for module_name in available.keys():
+            should_enable = module_name in preset_modules
+            next_value = "1" if should_enable else "0"
+            
+            result = await session.execute(
+                select(Setting).where(
+                    Setting.account_id == account_id,
+                    Setting.module == "core",
+                    Setting.key == f"module_enabled:{module_name}",
+                )
+            )
+            row = result.scalar_one_or_none()
+            
+            if row:
+                row.value = next_value
+            else:
+                session.add(
+                    Setting(
+                        account_id=account_id,
+                        module="core",
+                        key=f"module_enabled:{module_name}",
+                        value=next_value,
+                    )
+                )
+        await session.commit()
+    
+    return {"status": "ok", "preset": preset_name, "applied_count": len(preset_modules)}
+
+
+@router.post("/modules/batch-toggle")
+async def batch_toggle_modules(payload: dict, account_id: int | None = None) -> dict:
+    """Включить/отключить несколько модулей одновременно"""
+    modules = payload.get("modules", [])  # список имён модулей
+    enabled = payload.get("enabled", True)  # True для включения, False для отключения
+    
+    available = all_modules()
+    updated = 0
+    
+    async with async_session_factory() as session:
+        for module_name in modules:
+            if module_name not in available:
+                continue
+                
+            next_value = "1" if enabled else "0"
+            
+            result = await session.execute(
+                select(Setting).where(
+                    Setting.account_id == account_id,
+                    Setting.module == "core",
+                    Setting.key == f"module_enabled:{module_name}",
+                )
+            )
+            row = result.scalar_one_or_none()
+            
+            if row:
+                row.value = next_value
+            else:
+                session.add(
+                    Setting(
+                        account_id=account_id,
+                        module="core",
+                        key=f"module_enabled:{module_name}",
+                        value=next_value,
+                    )
+                )
+            updated += 1
+        
+        await session.commit()
+    
+    return {"status": "ok", "updated_count": updated, "enabled": enabled}
 
 
 @router.get("/profile", response_model=ProfileOut)

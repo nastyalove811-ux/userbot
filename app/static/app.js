@@ -144,11 +144,47 @@ const loadSettings = async () => {
 let _allModules = [];
 let _currentModuleFilter = 'all';
 let _currentModuleSearch = '';
+let _selectedModules = new Set();
+let _modulePresets = [];
 
 const loadModules = async () => {
   _allModules = await api(buildAccountFilter('/api/settings/modules'));
+  
+  // Load presets
+  try {
+    _modulePresets = await api('/api/settings/modules/presets');
+    renderPresets();
+  } catch (e) {
+    console.warn('Could not load presets:', e.message);
+  }
+  
   renderModulesGrid();
   return _allModules;
+};
+
+const renderPresets = () => {
+  const presetsContainer = $('#presetsButtons');
+  if (!presetsContainer) return;
+  
+  presetsContainer.innerHTML = _modulePresets.map(preset => `
+    <button data-preset="${preset.name}" class="preset-btn" title="${preset.description}">
+      📦 ${preset.name}
+    </button>
+  `).join('');
+  
+  presetsContainer.querySelectorAll('.preset-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const presetName = btn.dataset.preset;
+      try {
+        const url = buildAccountFilter(`/api/settings/modules/preset/${presetName}/apply`);
+        await api(url, { method: 'POST' });
+        showMessage(`Пресет "${presetName}" применён`);
+        await loadModules();
+      } catch (error) {
+        showMessage(error.message, 'error');
+      }
+    });
+  });
 };
 
 const renderModulesGrid = () => {
@@ -168,15 +204,20 @@ const renderModulesGrid = () => {
   const modulesGrid = $('#modulesGrid');
   modulesGrid.innerHTML = filtered.length
     ? filtered.map(module => `
-      <div class="module-card ${module.enabled ? 'enabled' : 'disabled'}">
+      <div class="module-card ${module.enabled ? 'enabled' : 'disabled'} ${_selectedModules.has(module.name) ? 'selected' : ''}">
         <div class="module-card-header">
           <div class="module-card-title">${module.name}</div>
           <div class="module-card-badge ${module.enabled ? 'enabled' : ''}">${module.command_count}</div>
         </div>
         <div class="module-card-commands">🔧 ${module.commands.slice(0, 3).join(', ')}${module.commands.length > 3 ? '...' : ''}</div>
-        <button data-action="toggle-module" data-module="${module.name}" class="module-card-button">
-          ${module.enabled ? '✓ Отключить' : '+ Включить'}
-        </button>
+        <div class="module-card-buttons">
+          <button data-action="toggle-module" data-module="${module.name}" class="module-card-button">
+            ${module.enabled ? '✓ Отключить' : '+ Включить'}
+          </button>
+          <button data-action="view-details" data-module="${module.name}" class="module-card-button" style="background: rgba(79,156,255,0.1); color: #4f9cff;">
+            ℹ Детали
+          </button>
+        </div>
       </div>
     `).join('')
     : '<div style="grid-column: 1/-1; text-align: center; color: var(--muted); padding: 40px 20px;">Модули не найдены</div>';
@@ -421,18 +462,118 @@ const init = async () => {
 
   document.addEventListener('click', async (event) => {
     const button = event.target.closest('button[data-action="toggle-module"]');
-    if (!button) return;
-    const moduleName = button.dataset.module;
-
-    try {
-      const url = buildAccountFilter(`/api/settings/modules/${encodeURIComponent(moduleName)}/toggle`);
-      await api(url, { method: 'POST' });
-      showMessage(`Модуль ${moduleName} обновлён`);
-      await loadModules();
-    } catch (error) {
-      showMessage(error.message, 'error');
+    if (button) {
+      const moduleName = button.dataset.module;
+      try {
+        const url = buildAccountFilter(`/api/settings/modules/${encodeURIComponent(moduleName)}/toggle`);
+        await api(url, { method: 'POST' });
+        showMessage(`Модуль ${moduleName} обновлён`);
+        await loadModules();
+      } catch (error) {
+        showMessage(error.message, 'error');
+      }
+      return;
+    }
+    
+    const detailsBtn = event.target.closest('button[data-action="view-details"]');
+    if (detailsBtn) {
+      const moduleName = detailsBtn.dataset.module;
+      try {
+        const url = buildAccountFilter(`/api/settings/modules/${encodeURIComponent(moduleName)}/details`);
+        const details = await api(url);
+        showModuleDetails(details);
+      } catch (error) {
+        showMessage(error.message, 'error');
+      }
+      return;
+    }
+    
+    const closeDetailsBtn = event.target.closest('[data-action="close-details"]');
+    if (closeDetailsBtn) {
+      const panel = $('#moduleDetailsPanel');
+      if (panel) panel.classList.add('hidden');
+      return;
+    }
+    
+    const selectAllBtn = event.target.closest('button[data-action="select-all"]');
+    if (selectAllBtn) {
+      _selectedModules.clear();
+      _allModules.forEach(m => _selectedModules.add(m.name));
+      renderModulesGrid();
+      return;
+    }
+    
+    const deselectAllBtn = event.target.closest('button[data-action="deselect-all"]');
+    if (deselectAllBtn) {
+      _selectedModules.clear();
+      renderModulesGrid();
+      return;
+    }
+    
+    const enableSelectedBtn = event.target.closest('button[data-action="enable-selected"]');
+    if (enableSelectedBtn) {
+      if (_selectedModules.size === 0) {
+        showMessage('Выберите модули', 'error');
+        return;
+      }
+      try {
+        const url = buildAccountFilter('/api/settings/modules/batch-toggle');
+        await api(url, { 
+          method: 'POST', 
+          body: JSON.stringify({ modules: Array.from(_selectedModules), enabled: true })
+        });
+        showMessage(`Включено ${_selectedModules.size} модулей`);
+        _selectedModules.clear();
+        await loadModules();
+      } catch (error) {
+        showMessage(error.message, 'error');
+      }
+      return;
+    }
+    
+    const disableSelectedBtn = event.target.closest('button[data-action="disable-selected"]');
+    if (disableSelectedBtn) {
+      if (_selectedModules.size === 0) {
+        showMessage('Выберите модули', 'error');
+        return;
+      }
+      try {
+        const url = buildAccountFilter('/api/settings/modules/batch-toggle');
+        await api(url, { 
+          method: 'POST', 
+          body: JSON.stringify({ modules: Array.from(_selectedModules), enabled: false })
+        });
+        showMessage(`Отключено ${_selectedModules.size} модулей`);
+        _selectedModules.clear();
+        await loadModules();
+      } catch (error) {
+        showMessage(error.message, 'error');
+      }
+      return;
     }
   });
+  
+  const showModuleDetails = (details) => {
+    const panel = $('#moduleDetailsPanel');
+    if (!panel) return;
+    
+    const titleEl = $('#detailsModuleName');
+    const listEl = $('#detailsCommandsList');
+    
+    if (titleEl) titleEl.textContent = details.name.toUpperCase();
+    
+    if (listEl) {
+      listEl.innerHTML = details.commands.map(cmd => `
+        <div class="command-item">
+          <div class="command-name">/${cmd.name}</div>
+          <div class="command-desc">${cmd.description}</div>
+          ${cmd.admin_only ? '<div class="command-admin">🔒 Только админ</div>' : ''}
+        </div>
+      `).join('');
+    }
+    
+    panel.classList.remove('hidden');
+  };
   
   const moduleFilter = $('#moduleFilter');
   if (moduleFilter) {

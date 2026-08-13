@@ -210,6 +210,19 @@
               <h3>Управление модулями</h3>
               <span class="badge success">live</span>
             </div>
+            
+            <div class="module-presets-section">
+              <div class="preset-label">Пресеты:</div>
+              <div class="preset-buttons" id="presetsButtons"></div>
+            </div>
+
+            <div class="module-actions">
+              <button class="action-btn" data-action="select-all">✓ Выбрать все</button>
+              <button class="action-btn" data-action="deselect-all">✗ Отменить все</button>
+              <button class="action-btn" data-action="enable-selected">▲ Включить выбранные</button>
+              <button class="action-btn" data-action="disable-selected">▼ Отключить выбранные</button>
+            </div>
+
             <div class="module-search-box">
               <input type="text" id="moduleFilter" placeholder="Поиск модулей..." class="module-search-input">
               <div class="module-filter-buttons">
@@ -219,6 +232,12 @@
               </div>
             </div>
             <div class="modules-grid" id="modulesGrid"></div>
+            
+            <div id="moduleDetailsPanel" class="module-details-panel hidden">
+              <div class="details-close" data-action="close-details">✕</div>
+              <h4 id="detailsModuleName"></h4>
+              <div id="detailsCommandsList"></div>
+            </div>
           </div>
         </div>
 
