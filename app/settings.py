@@ -15,16 +15,18 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # --- Обязательные поля (должны быть заданы в окружении) ---
-    database_url: str = Field(..., env="DATABASE_URL")
-    redis_url: str = Field(..., env="REDIS_URL")
-    api_id: int = Field(..., env="API_ID")
-    api_hash: str = Field(..., env="API_HASH")
-    encryption_key: str = Field(..., env="ENCRYPTION_KEY")
-    admin_id: int = Field(..., env="ADMIN_ID")
-    admin_login: str = Field(..., env="ADMIN_LOGIN")
-    admin_password: str = Field(..., env="ADMIN_PASSWORD")
-    secret_key: str = Field(..., env="SECRET_KEY")
+    # --- Поля с безопасными значениями по умолчанию для локальной разработки ---
+    # При отсутствии .env или Redis приложение всё равно стартует, но Telegram-API
+    # и сессии будут работать только после корректной настройки окружения.
+    database_url: str = Field(default="sqlite+aiosqlite:///./userbot.db", env="DATABASE_URL")
+    redis_url: str | None = Field(default=None, env="REDIS_URL")
+    api_id: int = Field(default=0, env="API_ID")
+    api_hash: str = Field(default="", env="API_HASH")
+    encryption_key: str = Field(default="", env="ENCRYPTION_KEY")
+    admin_id: int = Field(default=1, env="ADMIN_ID")
+    admin_login: str = Field(default="admin", env="ADMIN_LOGIN")
+    admin_password: str = Field(default="admin", env="ADMIN_PASSWORD")
+    secret_key: str = Field(default="dev-secret-key", env="SECRET_KEY")
 
     # --- Опциональные поля со значениями по умолчанию ---
     default_lang: str = "ru"

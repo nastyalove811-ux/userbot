@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from telethon import TelegramClient
-from telethon.errors import SessionPasswordNeededError
+from telethon.errors import ApiIdInvalidError, SessionPasswordNeededError
 from telethon.sessions import StringSession
 
 from app.auth import require_auth
@@ -53,58 +53,96 @@ async def list_accounts() -> list[AccountOut]:
 @router.post("/send-code")
 async def send_code(payload: SendCodeRequest) -> dict:
     settings = get_settings()
+    if not settings.api_id or not settings.api_hash:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Telegram API_ID/API_HASH не настроены. Добавьте корректные данные в .env или переменные окружения.",
+        )
+
     client = TelegramClient(StringSession(), settings.api_id, settings.api_hash)
-    await client.connect()
-    sent = await client.send_code_request(payload.phone)
-    await store_login_code_state(
-        payload.phone,
-        {"session": client.session.save(), "phone_code_hash": sent.phone_code_hash},
-    )
-    await client.disconnect()
-    return {"status": "code_sent"}
+    try:
+        await client.connect()
+        sent = await client.send_code_request(payload.phone)
+        await store_login_code_state(
+            payload.phone,
+            {"session": client.session.save(), "phone_code_hash": sent.phone_code_hash},
+        )
+        return {"status": "code_sent"}
+    except ApiIdInvalidError as exc:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Telegram API_ID/API_HASH неверны или истекли. Проверьте .env и credentials.",
+        ) from exc
+    except Exception as exc:  # pragma: no cover - защитная ветка, чтобы не падать 500
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Не удалось отправить код: {exc}",
+        ) from exc
+    finally:
+        await client.disconnect()
 
 
 @router.post("/confirm-code")
 async def confirm_code(payload: ConfirmCodeRequest) -> dict:
     settings = get_settings()
+    if not settings.api_id or not settings.api_hash:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Telegram API_ID/API_HASH не настроены. Добавьте корректные данные в .env или переменные окружения.",
+        )
+
     state = await get_login_code_state(payload.phone)
     if not state:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Код устарел, запросите новый")
 
     client = TelegramClient(StringSession(state["session"]), settings.api_id, settings.api_hash)
-    await client.connect()
     try:
-        await client.sign_in(
-            phone=payload.phone, code=payload.code, phone_code_hash=state["phone_code_hash"]
-        )
-    except SessionPasswordNeededError:
-        if not payload.password:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Требуется пароль двухфакторной аутентификации")
-        await client.sign_in(password=payload.password)
+        await client.connect()
+        try:
+            await client.sign_in(
+                phone=payload.phone, code=payload.code, phone_code_hash=state["phone_code_hash"]
+            )
+        except SessionPasswordNeededError:
+            if not payload.password:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "Требуется пароль двухфакторной аутентификации")
+            await client.sign_in(password=payload.password)
 
-    me = await client.get_me()
-    session_string = client.session.save()
-    await client.disconnect()
-    await clear_login_code_state(payload.phone)
+        me = await client.get_me()
+        session_string = client.session.save()
+        await clear_login_code_state(payload.phone)
 
-    async with async_session_factory() as session:
-        account = Account(
-            phone=payload.phone,
-            session_string=encrypt(session_string),
-            is_active=True,
-            bot_enabled=True,
-            first_name=me.first_name,
-            last_name=me.last_name,
-            username=me.username,
-            user_id=me.id,
-            premium=getattr(me, "premium", False),
-        )
-        session.add(account)
-        await session.commit()
-        await session.refresh(account)
+        async with async_session_factory() as session:
+            account = Account(
+                phone=payload.phone,
+                session_string=encrypt(session_string),
+                is_active=True,
+                bot_enabled=True,
+                first_name=me.first_name,
+                last_name=me.last_name,
+                username=me.username,
+                user_id=me.id,
+                premium=getattr(me, "premium", False),
+            )
+            session.add(account)
+            await session.commit()
+            await session.refresh(account)
 
-    await publish_event("account_added", {"account_id": account.id})
-    return {"status": "ok", "account_id": account.id}
+        await publish_event("account_added", {"account_id": account.id})
+        return {"status": "ok", "account_id": account.id}
+    except ApiIdInvalidError as exc:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Telegram API_ID/API_HASH неверны или истекли. Проверьте .env и credentials.",
+        ) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:  # pragma: no cover - защитная ветка, чтобы не падать 500
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Не удалось подтвердить код: {exc}",
+        ) from exc
+    finally:
+        await client.disconnect()
 
 
 @router.post("/{account_id}/toggle")

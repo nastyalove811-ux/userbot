@@ -30,7 +30,10 @@ class SettingIn(BaseModel):
 @router.get("", response_model=list[SettingOut])
 async def list_settings(account_id: int | None = None) -> list[SettingOut]:
     async with async_session_factory() as session:
-        result = await session.execute(select(Setting).where(Setting.account_id == account_id))
+        statement = select(Setting)
+        if account_id is not None:
+            statement = statement.where(Setting.account_id == account_id)
+        result = await session.execute(statement)
         return [SettingOut.model_validate(s) for s in result.scalars().all()]
 
 
