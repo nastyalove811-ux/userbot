@@ -8,8 +8,9 @@ from app.auth import require_auth
 from app.db import Account, LogEntry, Setting, async_session_factory
 from app.modules import (  # noqa: F401 — регистрирует команды через @command
     admin, chat, chatstats, clone, contacts, core, info, kurs,
-    messagetofile, pingbot, purger, quotes, screenshot, streak,
-    swmute, test, typingwatch, urldl, voicy, webshot, welcome, wordle,
+    messagetofile, pingbot, purger, quotes, screenshot, spam, stealman,
+    streak, swmute, tagall, test, toxic, typingwatch, urldl, voicy,
+    webshot, welcome, wordle, zaeb_reactions,
 )
 from app.modules.base import all_commands, all_modules
 from app.modules.core import set_setting
